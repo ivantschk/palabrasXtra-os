@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>palabras</title>
+    <link rel="stylesheet" href="https://unpkg.com/playhtml@2.10.1/dist/style.css">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        /* ── Viewport ── */
+        #board {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            cursor: grab;
+
+            /* Superficie blanca de heladera */
+            background: linear-gradient(
+                175deg,
+                #ffffff 0%,
+                #f7f7f7 55%,
+                #eeeeee 100%
+            );
+        }
+
+        #board.panning {
+            cursor: grabbing;
+        }
+
+        /* ── Canvas infinito ──
+           Ocupa cero espacio propio; el transform lo desplaza.
+           Las word-cards se posicionan absolutas dentro de él. */
+        #world {
+            position: absolute;
+            top: 0;
+            left: 0;
+            will-change: transform;
+        }
+
+        /* ── Imanes de palabras ── */
+        .word-card {
+            position: absolute;
+            background: #dc2626;
+            color: #000000;
+            padding: 7px 16px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            cursor: grab;
+            user-select: none;
+            box-shadow:
+                0  2px 0   #991b1b,
+                0  3px 10px rgba(0, 0, 0, 0.22);
+        }
+
+        .word-card:active {
+            cursor: grabbing;
+        }
+
+        /* ── Modal de ingreso ── */
+        #modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.90);
+            backdrop-filter: blur(3px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 500;
+        }
+
+        #modal-overlay.hidden {
+            display: none;
+        }
+
+        #modal {
+            background: #fff;
+            border: 2px solid #000;
+            padding: 44px 52px;
+            text-align: center;
+            max-width: 380px;
+            width: 90%;
+        }
+
+        #modal p {
+            font-size: 0.9rem;
+            letter-spacing: 0.08em;
+            text-transform: lowercase;
+            margin-bottom: 28px;
+            color: #111;
+        }
+
+        #word-input {
+            display: block;
+            width: 100%;
+            padding: 10px 14px;
+            font-size: 1.1rem;
+            font-family: inherit;
+            border: 2px solid #000;
+            outline: none;
+            margin-bottom: 20px;
+            text-align: center;
+            letter-spacing: 0.06em;
+            background: #fafafa;
+        }
+
+        #word-input:focus {
+            border-color: #dc2626;
+            background: #fff;
+        }
+
+        #word-submit {
+            background: #dc2626;
+            color: #fff;
+            border: none;
+            padding: 11px 36px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            letter-spacing: 0.09em;
+            text-transform: lowercase;
+            cursor: pointer;
+            box-shadow: 0 2px 0 #991b1b;
+        }
+
+        #word-submit:hover  { background: #b91c1c; }
+        #word-submit:active { transform: translateY(1px); box-shadow: none; }
+
+        /* ── Indicación ── */
+        #hint {
+            position: fixed;
+            bottom: 16px;
+            right: 18px;
+            font-size: 0.65rem;
+            color: #c8c8c8;
+            letter-spacing: 0.06em;
+            pointer-events: none;
+            text-align: right;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+
+<!-- El viewport contiene el mundo infinito -->
+<div id="board">
+    <div id="world"></div>
+</div>
+
+<!-- Modal: aparece al ingresar a la página -->
+<div id="modal-overlay">
+    <div id="modal">
+        <p>agregá una palabra al espacio</p>
+        <input
+            id="word-input"
+            type="text"
+            placeholder="escribí algo..."
+            maxlength="30"
+            autocomplete="off"
+            spellcheck="false"
+        >
+        <button id="word-submit">agregar</button>
+    </div>
+</div>
+
+<span id="hint">
+    arrastrá el fondo para moverte<br>
+    arrastrá las palabras para reordenarlas
+</span>
+
+<script type="module">
+import { playhtml } from "https://unpkg.com/playhtml@2.10.1/dist/playhtml.es.js";
+
+await playhtml.init();
+
+const { createPageData, setupPlayElement } = playhtml;
+
+// ── Palabras iniciales ────────────────────────────────────────────────────────
+const DEFAULTS = [
+    { id: "pw-hola",  text: "hola",  x: 120, y: 200 },
+    { id: "pw-como",  text: "como",  x: 290, y: 330 },
+    { id: "pw-estas", text: "estas", x: 170, y: 455 },
+];
+
+// ── Estado compartido entre todos los visitantes ──────────────────────────────
+const wordData = createPageData("palabras-v2", DEFAULTS);
+
+const board = document.getElementById("board");
+const world = document.getElementById("world");
+
+// ── Pan state (local, per usuario) ───────────────────────────────────────────
+let panX = 0;
+let panY = 0;
+let panActive = false;
+let panStartX = 0;
+let panStartY = 0;
+
+// Restaurar el pan de la última sesión en este dispositivo
+const savedPan = JSON.parse(localStorage.getItem("palabras-v2-pan") || "null");
+if (savedPan) { panX = savedPan.x; panY = savedPan.y; }
+
+function applyPan() {
+    world.style.transform = `translate(${panX}px, ${panY}px)`;
+}
+applyPan();
+
+// ── Crear imanes de palabras ──────────────────────────────────────────────────
+function addCard(word) {
+    if (document.getElementById(word.id)) return;
+
+    const el = document.createElement("div");
+    el.id          = word.id;
+    el.className   = "word-card";
+    el.textContent = word.text;
+    el.setAttribute("can-move", "");
+    el.style.left  = word.x + "px";
+    el.style.top   = word.y + "px";
+
+    world.appendChild(el);
+    setupPlayElement(el); // activa can-move en elemento dinámico
+}
+
+wordData.getData().forEach(addCard);
+wordData.onUpdate((words) => words.forEach(addCard));
+
+// ── Agregar una palabra nueva ─────────────────────────────────────────────────
+function addWord(text) {
+    text = text.trim().toLowerCase();
+    if (!text) return false;
+
+    // Posicionar cerca del centro de la vista actual (coordenadas de mundo)
+    const scatter = () => (Math.random() - 0.5) * 320;
+    const wx = Math.round(window.innerWidth  / 2 - panX + scatter());
+    const wy = Math.round(window.innerHeight / 2 - panY + scatter());
+    const id = "pw-" + Date.now();
+
+    wordData.setData([...wordData.getData(), { id, text, x: wx, y: wy }]);
+    return true;
+}
+
+// ── Pan: drag en el fondo para moverse en el espacio ─────────────────────────
+board.addEventListener("pointerdown", (e) => {
+    // Si el click es sobre un imán, dejar que playhtml lo maneje
+    if (e.target.closest(".word-card")) return;
+
+    panActive = true;
+    panStartX = e.clientX - panX;
+    panStartY = e.clientY - panY;
+    board.classList.add("panning");
+    board.setPointerCapture(e.pointerId);
+    e.preventDefault();
+});
+
+board.addEventListener("pointermove", (e) => {
+    if (!panActive) return;
+    panX = e.clientX - panStartX;
+    panY = e.clientY - panStartY;
+    applyPan();
+});
+
+board.addEventListener("pointerup", () => {
+    if (!panActive) return;
+    panActive = false;
+    board.classList.remove("panning");
+    // Guardar posición de vista para la próxima vez
+    localStorage.setItem("palabras-v2-pan", JSON.stringify({ x: panX, y: panY }));
+});
+
+board.addEventListener("pointercancel", () => {
+    panActive = false;
+    board.classList.remove("panning");
+});
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+const overlay = document.getElementById("modal-overlay");
+const input   = document.getElementById("word-input");
+
+function submit() {
+    if (addWord(input.value)) overlay.classList.add("hidden");
+    else input.focus();
+}
+
+document.getElementById("word-submit").addEventListener("click", submit);
+input.addEventListener("keydown", (e) => e.key === "Enter" && submit());
+</script>
+
+</body>
+</html>
