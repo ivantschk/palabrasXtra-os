@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- user-scalable=no previene el pinch-zoom del browser que interferiría con el pan -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>palabras</title>
     <link rel="stylesheet" href="https://unpkg.com/playhtml@2.10.1/dist/style.css">
     <style>
@@ -29,7 +30,10 @@
             overflow: hidden;
             cursor: grab;
 
-            /* Superficie blanca de heladera */
+            /* touch-action: none previene scroll/zoom del browser
+               para todos los toques que empiecen en este elemento */
+            touch-action: none;
+
             background: linear-gradient(
                 175deg,
                 #ffffff 0%,
@@ -42,14 +46,13 @@
             cursor: grabbing;
         }
 
-        /* ── Canvas infinito ──
-           Ocupa cero espacio propio; el transform lo desplaza.
-           Las word-cards se posicionan absolutas dentro de él. */
+        /* ── Canvas infinito ── */
         #world {
             position: absolute;
             top: 0;
             left: 0;
             will-change: transform;
+            touch-action: none;
         }
 
         /* ── Imanes de palabras ── */
@@ -57,32 +60,48 @@
             position: absolute;
             background: #dc2626;
             color: #000000;
-            padding: 7px 16px;
-            font-size: 1.05rem;
+            padding: 10px 20px;
+            font-size: 1.15rem;
             font-weight: 700;
             letter-spacing: 0.06em;
             white-space: nowrap;
             cursor: grab;
             user-select: none;
+            -webkit-user-select: none;
+
+            /* Impide que el browser interfiera con el drag de palabras */
+            touch-action: none;
+
             box-shadow:
                 0  2px 0   #991b1b,
-                0  3px 10px rgba(0, 0, 0, 0.22);
+                0  4px 12px rgba(0, 0, 0, 0.25);
         }
 
         .word-card:active {
             cursor: grabbing;
         }
 
-        /* ── Modal de ingreso ── */
+        /* ── Modal ── */
         #modal-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(255, 255, 255, 0.90);
-            backdrop-filter: blur(3px);
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 500;
+            /* Permite que el teclado virtual empuje el contenido */
+            align-items: flex-end;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        @media (min-height: 500px) {
+            #modal-overlay {
+                align-items: center;
+                padding-bottom: 0;
+            }
         }
 
         #modal-overlay.hidden {
@@ -92,32 +111,44 @@
         #modal {
             background: #fff;
             border: 2px solid #000;
-            padding: 44px 52px;
+            padding: 40px 36px 36px;
             text-align: center;
-            max-width: 380px;
-            width: 90%;
+            width: 100%;
+            max-width: 420px;
+            border-radius: 0;
+            border-bottom: none;
+        }
+
+        @media (min-height: 500px) {
+            #modal {
+                border-bottom: 2px solid #000;
+                width: 90%;
+            }
         }
 
         #modal p {
-            font-size: 0.9rem;
-            letter-spacing: 0.08em;
+            font-size: 0.95rem;
+            letter-spacing: 0.07em;
             text-transform: lowercase;
-            margin-bottom: 28px;
+            margin-bottom: 24px;
             color: #111;
         }
 
         #word-input {
             display: block;
             width: 100%;
-            padding: 10px 14px;
-            font-size: 1.1rem;
+            padding: 14px 16px;
+            font-size: 1.2rem;
             font-family: inherit;
             border: 2px solid #000;
             outline: none;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             text-align: center;
             letter-spacing: 0.06em;
             background: #fafafa;
+            border-radius: 0;
+            /* Evita zoom automático en iOS al enfocar inputs < 16px */
+            -webkit-text-size-adjust: 100%;
         }
 
         #word-input:focus {
@@ -126,53 +157,59 @@
         }
 
         #word-submit {
+            display: block;
+            width: 100%;
             background: #dc2626;
             color: #fff;
             border: none;
-            padding: 11px 36px;
-            font-size: 0.9rem;
+            padding: 16px;
+            font-size: 1rem;
             font-family: inherit;
             letter-spacing: 0.09em;
             text-transform: lowercase;
             cursor: pointer;
             box-shadow: 0 2px 0 #991b1b;
+            border-radius: 0;
         }
 
-        #word-submit:hover  { background: #b91c1c; }
-        #word-submit:active { transform: translateY(1px); box-shadow: none; }
+        #word-submit:active {
+            transform: translateY(2px);
+            box-shadow: none;
+        }
 
         /* ── Indicación ── */
         #hint {
             position: fixed;
-            bottom: 16px;
+            bottom: max(16px, env(safe-area-inset-bottom));
             right: 18px;
             font-size: 0.65rem;
             color: #c8c8c8;
             letter-spacing: 0.06em;
             pointer-events: none;
             text-align: right;
-            line-height: 1.8;
+            line-height: 1.9;
         }
     </style>
 </head>
 <body>
 
-<!-- El viewport contiene el mundo infinito -->
 <div id="board">
     <div id="world"></div>
 </div>
 
-<!-- Modal: aparece al ingresar a la página -->
 <div id="modal-overlay">
     <div id="modal">
         <p>agregá una palabra al espacio</p>
         <input
             id="word-input"
             type="text"
-            placeholder="escribí algo..."
-            maxlength="30"
+            inputmode="text"
             autocomplete="off"
+            autocorrect="off"
+            autocapitalize="none"
             spellcheck="false"
+            maxlength="30"
+            placeholder="escribí algo..."
         >
         <button id="word-submit">agregar</button>
     </div>
@@ -180,7 +217,7 @@
 
 <span id="hint">
     arrastrá el fondo para moverte<br>
-    arrastrá las palabras para reordenarlas
+    arrastrá las palabras para moverlas
 </span>
 
 <script type="module">
@@ -192,34 +229,18 @@ const { createPageData, setupPlayElement } = playhtml;
 
 // ── Palabras iniciales ────────────────────────────────────────────────────────
 const DEFAULTS = [
-    { id: "pw-hola",  text: "hola",  x: 120, y: 200 },
-    { id: "pw-como",  text: "como",  x: 290, y: 330 },
-    { id: "pw-estas", text: "estas", x: 170, y: 455 },
+    { id: "pw-hola",  text: "hola",  x: 40,  y: 180 },
+    { id: "pw-como",  text: "como",  x: 180, y: 290 },
+    { id: "pw-estas", text: "estas", x: 80,  y: 400 },
 ];
 
-// ── Estado compartido entre todos los visitantes ──────────────────────────────
-const wordData = createPageData("palabras-v2", DEFAULTS);
+// ── Estado compartido entre visitantes ────────────────────────────────────────
+const wordData = createPageData("palabras-v3", DEFAULTS);
 
 const board = document.getElementById("board");
 const world = document.getElementById("world");
 
-// ── Pan state (local, per usuario) ───────────────────────────────────────────
-let panX = 0;
-let panY = 0;
-let panActive = false;
-let panStartX = 0;
-let panStartY = 0;
-
-// Restaurar el pan de la última sesión en este dispositivo
-const savedPan = JSON.parse(localStorage.getItem("palabras-v2-pan") || "null");
-if (savedPan) { panX = savedPan.x; panY = savedPan.y; }
-
-function applyPan() {
-    world.style.transform = `translate(${panX}px, ${panY}px)`;
-}
-applyPan();
-
-// ── Crear imanes de palabras ──────────────────────────────────────────────────
+// ── Crear imanes ──────────────────────────────────────────────────────────────
 function addCard(word) {
     if (document.getElementById(word.id)) return;
 
@@ -232,19 +253,19 @@ function addCard(word) {
     el.style.top   = word.y + "px";
 
     world.appendChild(el);
-    setupPlayElement(el); // activa can-move en elemento dinámico
+    setupPlayElement(el);
 }
 
 wordData.getData().forEach(addCard);
 wordData.onUpdate((words) => words.forEach(addCard));
 
-// ── Agregar una palabra nueva ─────────────────────────────────────────────────
+// ── Agregar palabra nueva ─────────────────────────────────────────────────────
 function addWord(text) {
     text = text.trim().toLowerCase();
     if (!text) return false;
 
-    // Posicionar cerca del centro de la vista actual (coordenadas de mundo)
-    const scatter = () => (Math.random() - 0.5) * 320;
+    // Aparecer cerca del centro de la vista actual
+    const scatter = () => (Math.random() - 0.5) * 260;
     const wx = Math.round(window.innerWidth  / 2 - panX + scatter());
     const wy = Math.round(window.innerHeight / 2 - panY + scatter());
     const id = "pw-" + Date.now();
@@ -253,14 +274,60 @@ function addWord(text) {
     return true;
 }
 
-// ── Pan: drag en el fondo para moverse en el espacio ─────────────────────────
+// ── Pan con inercia ───────────────────────────────────────────────────────────
+let panX = 0, panY = 0;
+let panActive = false;
+let panStartX = 0, panStartY = 0;
+let velX = 0, velY = 0;
+let lastMoveX = 0, lastMoveY = 0, lastMoveTime = 0;
+let inertiaFrame = null;
+
+// Restaurar posición de última sesión en este dispositivo
+const saved = JSON.parse(localStorage.getItem("palabras-v3-pan") || "null");
+if (saved) { panX = saved.x; panY = saved.y; }
+
+function applyPan() {
+    world.style.transform = `translate(${panX}px, ${panY}px)`;
+}
+applyPan();
+
+function savePan() {
+    localStorage.setItem("palabras-v3-pan", JSON.stringify({ x: panX, y: panY }));
+}
+
+function stopInertia() {
+    if (inertiaFrame) { cancelAnimationFrame(inertiaFrame); inertiaFrame = null; }
+}
+
+function startInertia() {
+    stopInertia();
+    const FRICTION = 0.90;
+
+    function tick() {
+        velX *= FRICTION;
+        velY *= FRICTION;
+        if (Math.abs(velX) < 0.4 && Math.abs(velY) < 0.4) { savePan(); return; }
+        panX += velX;
+        panY += velY;
+        applyPan();
+        inertiaFrame = requestAnimationFrame(tick);
+    }
+    inertiaFrame = requestAnimationFrame(tick);
+}
+
 board.addEventListener("pointerdown", (e) => {
-    // Si el click es sobre un imán, dejar que playhtml lo maneje
+    // Si toca un imán, dejar que playhtml lo maneje
     if (e.target.closest(".word-card")) return;
 
+    stopInertia();
     panActive = true;
     panStartX = e.clientX - panX;
     panStartY = e.clientY - panY;
+    velX = 0; velY = 0;
+    lastMoveX = e.clientX;
+    lastMoveY = e.clientY;
+    lastMoveTime = Date.now();
+
     board.classList.add("panning");
     board.setPointerCapture(e.pointerId);
     e.preventDefault();
@@ -268,22 +335,38 @@ board.addEventListener("pointerdown", (e) => {
 
 board.addEventListener("pointermove", (e) => {
     if (!panActive) return;
+
+    const now = Date.now();
+    const dt = Math.max(1, now - lastMoveTime);
+
+    // Velocidad suavizada (exponential moving average)
+    const rawVX = (e.clientX - lastMoveX) / dt * 16;
+    const rawVY = (e.clientY - lastMoveY) / dt * 16;
+    velX = velX * 0.4 + rawVX * 0.6;
+    velY = velY * 0.4 + rawVY * 0.6;
+
+    lastMoveX = e.clientX;
+    lastMoveY = e.clientY;
+    lastMoveTime = now;
+
     panX = e.clientX - panStartX;
     panY = e.clientY - panStartY;
     applyPan();
+    e.preventDefault();
 });
 
 board.addEventListener("pointerup", () => {
     if (!panActive) return;
     panActive = false;
     board.classList.remove("panning");
-    // Guardar posición de vista para la próxima vez
-    localStorage.setItem("palabras-v2-pan", JSON.stringify({ x: panX, y: panY }));
+    startInertia();
 });
 
 board.addEventListener("pointercancel", () => {
     panActive = false;
     board.classList.remove("panning");
+    velX = 0; velY = 0;
+    savePan();
 });
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
